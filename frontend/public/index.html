@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Task Tracker — CI/CD Workshop</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <h1>Task Tracker</h1>
+      <p class="subtitle">Frontend (nginx) &rarr; Backend (Node/Express) &rarr; Database (Postgres)</p>
+      <span id="apiStatus" class="badge badge-pending">checking API...</span>
+    </header>
+
+    <main>
+      <form id="taskForm" class="task-form">
+        <input id="taskInput" type="text" placeholder="Add a new task..." autocomplete="off" required />
+        <button type="submit">Add</button>
+      </form>
+
+      <section class="stats">
+        <div class="stat">
+          <span id="totalCount">0</span>
+          <label>Total</label>
+        </div>
+        <div class="stat">
+          <span id="doneCount">0</span>
+          <label>Done</label>
+        </div>
+        <div class="stat">
+          <span id="pendingCount">0</span>
+          <label>Pending</label>
+        </div>
+      </section>
+
+      <ul id="taskList" class="task-list"></ul>
+    </main>
+
+    <footer>
+      <p>Built by students &middot; deployed by Jenkins &middot; scanned by Trivy &middot; shipped via Docker Hub</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
