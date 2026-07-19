@@ -148,27 +148,26 @@ right before the images actually run.
 - Create a new Pipeline job, "Pipeline script from SCM", point it at the
   repo, script path `Jenkinsfile`.
 - Add the two credentials as described above.
-- Run the job once manually ("Build Now") to confirm it's wired up
-  correctly before relying on the trigger.
+- Builds are manual for now ("Build with Parameters") — no SCM trigger is
+  configured yet. This keeps the first pass simple: students see exactly
+  what each stage does before automation hides the trigger from them.
 
-**From this point on, the workflow is: edit code → `git push` → walk away.**
-The Jenkinsfile has `triggers { pollSCM('H/2 * * * *') }`, so Jenkins
-checks GitHub for new commits every ~2 minutes and starts a build itself —
-no one needs to click "Build Now" again. That single build then runs the
-whole chain end to end: checkout, repo scan, build both images, push to
-Docker Hub, SSH to EC2, pull, scan, deploy. This is the moment to make
-explicit to students: **that's the entire point of CI/CD** — a push is the
-only human action, everything after it is server-driven and reproducible.
+> **First build with a new/changed parameter — use "Build with
+> Parameters," not the plain "Build Now" link.** Jenkins pre-fills a
+> parameterized job's build form with the *last values actually
+> submitted*, not the Jenkinsfile's current `defaultValue`, once the job
+> has any build history. If `EC2_HOST` was ever run empty, later plain
+> triggers keep reusing that empty value even after the Jenkinsfile's
+> default changes — only an explicit "Build with Parameters" run (where
+> you see and can edit the pre-filled field) breaks that cache.
 
-> Polling is the simplest trigger and needs zero network configuration,
-> which is why it's the default here — it works identically whether
-> Jenkins is on a laptop, a VM, or behind NAT. The instant-trigger version
-> used in real production setups is a **GitHub webhook**: GitHub repo →
-> Settings → Webhooks → Add webhook → payload URL
-> `http://<jenkins-public-url>/github-webhook/`, plus `githubPush()`
-> instead of `pollSCM(...)` in the Jenkinsfile. It only works if Jenkins
-> has a URL GitHub can reach, so it's a good "going further" upgrade
-> rather than the workshop default.
+**Going further:** once the group is comfortable with manual builds, wire
+up a **GitHub webhook** so `git push` alone triggers a build — GitHub repo
+→ Settings → Webhooks → Add webhook → payload URL
+`http://<jenkins-public-url>/github-webhook/`, plus adding
+`triggers { githubPush() }` to the Jenkinsfile. This needs Jenkins to have
+a URL GitHub can reach (a public IP/DNS, or a tunnel like ngrok for a
+laptop-hosted Jenkins) — check that before promising it live in the room.
 
 ### Lab 3 — Read the pipeline stage by stage (50 min)
 
@@ -209,7 +208,8 @@ Walk the Jenkinsfile top to bottom, matching each stage to the diagram:
 - Also scan images on the Jenkins side *before* push, in addition to the
   EC2-side scan, for defense in depth (belt-and-suspenders — catches
   problems earlier, at the cost of scanning every build twice).
-- Add a `Webhook` trigger (GitHub → Jenkins) instead of manual builds.
+- Wire up the GitHub webhook described in Lab 2 so `git push` alone
+  triggers a build, instead of manual builds.
 - Swap the manual `IMAGE_TAG` parameter for `${env.GIT_COMMIT[0..7]}` so
   every image is traceable to a commit.
 

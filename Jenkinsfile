@@ -17,14 +17,8 @@
 pipeline {
     agent any
 
-    // Polls GitHub for new commits every ~2 minutes and auto-starts a build
-    // when it finds one — this is what turns "git push" into the trigger
-    // for the whole pipeline, no manual "Build Now" needed. (A GitHub
-    // webhook would trigger instantly instead of polling, but requires
-    // Jenkins to have a public URL GitHub can reach — see WORKSHOP.md.)
-    triggers {
-        pollSCM('H/2 * * * *')
-    }
+    // No SCM trigger yet — builds are manual (or via GitHub webhook, once
+    // that's wired up). See WORKSHOP.md for adding a webhook trigger later.
 
     parameters {
         string(name: 'EC2_HOST', defaultValue: 'ubuntu@3.209.156.211', description: 'user@host of the EC2 deploy target. Leave blank to skip deployment.')
