@@ -1,18 +1,18 @@
 // Industry-standard CI/CD pipeline for the Task Tracker 3-tier app.
 //
-// Flow: checkout -> scan repo (Trivy, on Jenkins) -> build images
-//       -> push to Docker Hub (unscanned) -> deploy to EC2 over SSH,
-//       where the EC2 host pulls the images and scans them with Trivy
-//       *before* bringing them up.
+// Flow: checkout -> scan repo (Trivy) -> build images -> push to Docker Hub
+//       (unscanned) -> pull them back down and scan with Trivy -> deploy.
+//
+// Jenkins runs directly on the EC2 instance for this workshop, so "deploy"
+// is just `docker compose` run in the workspace — no SSH hop to a separate
+// host. (If Jenkins and the deploy target were different machines, this
+// stage would need to SSH over instead — see WORKSHOP.md for that variant.)
 //
 // Required Jenkins credentials (set up once via Manage Jenkins > Credentials):
 //   dockerhub-creds  - "Username with password" (Docker Hub username + access token)
-//   ec2-ssh-key      - "SSH Username with private key" (EC2 login user + .pem contents)
 //
-// Required Jenkins plugins: Docker Pipeline, Credentials Binding, SSH Credentials.
-// Required on the Jenkins agent: docker, trivy.
-// Required on the EC2 host: docker, docker compose plugin, trivy, and this
-// repo cloned once to ~/tasktracker-cicd-lab (see WORKSHOP.md).
+// Required Jenkins plugins: Docker Pipeline, Credentials Binding.
+// Required on this host: docker, docker compose plugin, trivy.
 
 pipeline {
     agent any
@@ -21,7 +21,6 @@ pipeline {
     // that's wired up). See WORKSHOP.md for adding a webhook trigger later.
 
     parameters {
-        string(name: 'EC2_HOST', defaultValue: 'ubuntu@3.209.156.211', description: 'user@host of the EC2 deploy target. Leave blank to skip deployment.')
         string(name: 'IMAGE_TAG', defaultValue: "${env.BUILD_NUMBER}", description: 'Tag applied to the built images')
     }
 
@@ -85,25 +84,16 @@ pipeline {
             }
         }
 
-        stage('Deploy to EC2') {
-            when {
-                expression { return params.EC2_HOST?.trim() }
-            }
+        stage('Deploy') {
             steps {
-                echo 'Pulling images on the EC2 host and scanning them with Trivy before starting them'
-                withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'EC2_SSH_KEY')]) {
-                    sh """
-                        ssh -o StrictHostKeyChecking=no -i \$EC2_SSH_KEY ${params.EC2_HOST} '
-                            cd ~/tasktracker-cicd-lab &&
-                            git pull &&
-                            IMAGE_TAG=${params.IMAGE_TAG} docker compose -f docker-compose.prod.yml pull &&
-                            trivy image --severity HIGH,CRITICAL --exit-code 0 --format table ${BACKEND_IMAGE}:${params.IMAGE_TAG} &&
-                            trivy image --severity HIGH,CRITICAL --exit-code 0 --format table ${FRONTEND_IMAGE}:${params.IMAGE_TAG} &&
-                            IMAGE_TAG=${params.IMAGE_TAG} docker compose -f docker-compose.prod.yml up -d &&
-                            docker image prune -f
-                        '
-                    """
-                }
+                echo 'Pulling images and scanning them with Trivy before starting them'
+                sh """
+                    IMAGE_TAG=${params.IMAGE_TAG} docker compose -f docker-compose.prod.yml pull
+                    trivy image --severity HIGH,CRITICAL --exit-code 0 --format table ${BACKEND_IMAGE}:${params.IMAGE_TAG}
+                    trivy image --severity HIGH,CRITICAL --exit-code 0 --format table ${FRONTEND_IMAGE}:${params.IMAGE_TAG}
+                    IMAGE_TAG=${params.IMAGE_TAG} docker compose -f docker-compose.prod.yml up -d
+                    docker image prune -f
+                """
             }
         }
     }
@@ -113,7 +103,7 @@ pipeline {
             sh 'docker logout || true'
         }
         success {
-            echo "Build ${params.IMAGE_TAG} pushed to Docker Hub${params.EC2_HOST?.trim() ? " and deployed to ${params.EC2_HOST}" : ''}."
+            echo "Build ${params.IMAGE_TAG} pushed to Docker Hub and deployed."
         }
         failure {
             echo 'Pipeline failed - scroll up to see which stage broke and why.'
