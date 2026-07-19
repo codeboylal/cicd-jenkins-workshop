@@ -15,6 +15,7 @@ docker compose up --build
 ```
 
 - Frontend: http://localhost:8081
+- Backend: http://localhost:8090
 - Backend health check: http://localhost:8090/api/health
 
 ## Project layout
