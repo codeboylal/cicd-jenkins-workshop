@@ -58,7 +58,9 @@ right before the images actually run.
 ## Instructor-only setup (do before the workshop, not live)
 
 1. Jenkins running (container or VM) with plugins: **Docker Pipeline**,
-   **SSH Agent**, **Credentials Binding**.
+   **Credentials Binding**, **SSH Credentials**. (Not "SSH Agent" — the
+   Deploy stage uses `withCredentials([sshUserPrivateKey(...)])` instead
+   of the `sshagent` step, so it doesn't need that extra plugin.)
 
 2. **The Jenkins user must be able to run `docker` commands.** This is the
    single most common blocker (`permission denied while trying to connect

@@ -9,7 +9,7 @@
 //   dockerhub-creds  - "Username with password" (Docker Hub username + access token)
 //   ec2-ssh-key      - "SSH Username with private key" (EC2 login user + .pem contents)
 //
-// Required Jenkins plugins: Docker Pipeline, SSH Agent, Credentials Binding.
+// Required Jenkins plugins: Docker Pipeline, Credentials Binding, SSH Credentials.
 // Required on the Jenkins agent: docker, trivy.
 // Required on the EC2 host: docker, docker compose plugin, trivy, and this
 // repo cloned once to ~/tasktracker-cicd-lab (see WORKSHOP.md).
@@ -91,9 +91,9 @@ pipeline {
             }
             steps {
                 echo 'Pulling images on the EC2 host and scanning them with Trivy before starting them'
-                sshagent(credentials: ['ec2-ssh-key']) {
+                withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'EC2_SSH_KEY')]) {
                     sh """
-                        ssh -o StrictHostKeyChecking=no ${params.EC2_HOST} '
+                        ssh -o StrictHostKeyChecking=no -i \$EC2_SSH_KEY ${params.EC2_HOST} '
                             cd ~/tasktracker-cicd-lab &&
                             git pull &&
                             IMAGE_TAG=${params.IMAGE_TAG} docker compose -f docker-compose.prod.yml pull &&
