@@ -110,7 +110,7 @@ pipeline {
                     IMAGE_TAG=${params.IMAGE_TAG} docker compose -p ${COMPOSE_PROJECT} --env-file .env.${ENVIRONMENT} -f docker-compose.deploy.yml pull
                     trivy image --severity HIGH,CRITICAL --exit-code 0 --format table ${BACKEND_IMAGE}:${params.IMAGE_TAG}
                     trivy image --severity HIGH,CRITICAL --exit-code 0 --format table ${FRONTEND_IMAGE}:${params.IMAGE_TAG}
-                    IMAGE_TAG=${params.IMAGE_TAG} docker compose -p ${COMPOSE_PROJECT} --env-file .env.${ENVIRONMENT} -f docker-compose.deploy.yml up -d
+                    IMAGE_TAG=${params.IMAGE_TAG} docker compose -p ${COMPOSE_PROJECT} --env-file .env.${ENVIRONMENT} -f docker-compose.deploy.yml up -d --remove-orphans
                     docker image prune -f
                 """
             }
