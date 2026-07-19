@@ -1,20 +1,33 @@
 // Industry-standard CI/CD pipeline for the Task Tracker 3-tier app.
 //
-// Flow: checkout -> scan repo (Trivy) -> build images -> scan images (Trivy)
-//       -> push to Docker Hub -> deploy to EC2 over SSH.
+// Flow: checkout -> scan repo (Trivy, on Jenkins) -> build images
+//       -> push to Docker Hub (unscanned) -> deploy to EC2 over SSH,
+//       where the EC2 host pulls the images and scans them with Trivy
+//       *before* bringing them up.
 //
 // Required Jenkins credentials (set up once via Manage Jenkins > Credentials):
 //   dockerhub-creds  - "Username with password" (Docker Hub username + access token)
 //   ec2-ssh-key      - "SSH Username with private key" (EC2 login user + .pem contents)
 //
 // Required Jenkins plugins: Docker Pipeline, SSH Agent, Credentials Binding.
-// Required on the agent: docker, trivy.
+// Required on the Jenkins agent: docker, trivy.
+// Required on the EC2 host: docker, docker compose plugin, trivy, and this
+// repo cloned once to ~/tasktracker-cicd-lab (see WORKSHOP.md).
 
 pipeline {
     agent any
 
+    // Polls GitHub for new commits every ~2 minutes and auto-starts a build
+    // when it finds one — this is what turns "git push" into the trigger
+    // for the whole pipeline, no manual "Build Now" needed. (A GitHub
+    // webhook would trigger instantly instead of polling, but requires
+    // Jenkins to have a public URL GitHub can reach — see WORKSHOP.md.)
+    triggers {
+        pollSCM('H/2 * * * *')
+    }
+
     parameters {
-        string(name: 'EC2_HOST', defaultValue: '', description: 'user@host of the EC2 deploy target, e.g. ubuntu@3.110.25.10. Leave blank to skip deployment.')
+        string(name: 'EC2_HOST', defaultValue: 'ubuntu@3.209.156.211', description: 'user@host of the EC2 deploy target. Leave blank to skip deployment.')
         string(name: 'IMAGE_TAG', defaultValue: "${env.BUILD_NUMBER}", description: 'Tag applied to the built images')
     }
 
@@ -63,23 +76,6 @@ pipeline {
             }
         }
 
-        stage('Image Scan - Trivy') {
-            steps {
-                echo 'Scanning built images for OS + library vulnerabilities'
-                sh """
-                    trivy image --severity HIGH,CRITICAL --exit-code 0 \
-                        --format table -o trivy-backend-image.txt ${BACKEND_IMAGE}:${params.IMAGE_TAG}
-                    trivy image --severity HIGH,CRITICAL --exit-code 0 \
-                        --format table -o trivy-frontend-image.txt ${FRONTEND_IMAGE}:${params.IMAGE_TAG}
-                """
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: 'trivy-*-image.txt', allowEmptyArchive: true
-                }
-            }
-        }
-
         stage('Push to Docker Hub') {
             steps {
                 sh 'echo "$DOCKERHUB_CREDENTIALS_PSW" | docker login -u "$DOCKERHUB_CREDENTIALS_USR" --password-stdin'
@@ -100,12 +96,15 @@ pipeline {
                 expression { return params.EC2_HOST?.trim() }
             }
             steps {
+                echo 'Pulling images on the EC2 host and scanning them with Trivy before starting them'
                 sshagent(credentials: ['ec2-ssh-key']) {
                     sh """
                         ssh -o StrictHostKeyChecking=no ${params.EC2_HOST} '
                             cd ~/tasktracker-cicd-lab &&
                             git pull &&
                             IMAGE_TAG=${params.IMAGE_TAG} docker compose -f docker-compose.prod.yml pull &&
+                            trivy image --severity HIGH,CRITICAL --exit-code 0 --format table ${BACKEND_IMAGE}:${params.IMAGE_TAG} &&
+                            trivy image --severity HIGH,CRITICAL --exit-code 0 --format table ${FRONTEND_IMAGE}:${params.IMAGE_TAG} &&
                             IMAGE_TAG=${params.IMAGE_TAG} docker compose -f docker-compose.prod.yml up -d &&
                             docker image prune -f
                         '
