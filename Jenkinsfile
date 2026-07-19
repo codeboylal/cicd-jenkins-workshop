@@ -8,6 +8,19 @@
 // host. (If Jenkins and the deploy target were different machines, this
 // stage would need to SSH over instead — see WORKSHOP.md for that variant.)
 //
+// ONE Jenkinsfile, many environments, zero manual edits per pipeline:
+// this same file is meant to be reused unchanged by every environment's
+// Jenkins job (dev-task-tracker, prod-task-tracker, ...). ENVIRONMENT is
+// derived below from the Jenkins job name, not a parameter — a parameter
+// can be left on a stale value from a previous build (see git history for
+// exactly that bug), a job name can't drift the same way. Each
+// environment gets its own docker-compose "project name" (isolates
+// containers/network/volumes automatically) and its own .env.<name> file
+// (supplies the one thing Compose can't namespace for you: the host
+// port). Adding a new environment = add one .env.<name> file and one
+// Jenkins job whose name contains that name. Never edit this Jenkinsfile
+// or the compose file per environment.
+//
 // Required Jenkins credentials (set up once via Manage Jenkins > Credentials):
 //   dockerhub-creds  - "Username with password" (Docker Hub username + access token)
 //
@@ -29,6 +42,12 @@ pipeline {
         BACKEND_IMAGE        = "${DOCKERHUB_NAMESPACE}/tasktracker-backend"
         FRONTEND_IMAGE       = "${DOCKERHUB_NAMESPACE}/tasktracker-frontend"
         DOCKERHUB_CREDENTIALS = credentials('dockerhub-creds')
+        // e.g. job "prod-task-tracker" -> "prod", "dev-task-tracker" -> "dev".
+        // Falls back to "dev" if the job name matches neither, so a
+        // misnamed job fails safe into the non-production environment
+        // rather than silently deploying to prod.
+        ENVIRONMENT = "${env.JOB_NAME.toLowerCase().contains('prod') ? 'prod' : 'dev'}"
+        COMPOSE_PROJECT = "tasktracker-${ENVIRONMENT}"
     }
 
     stages {
@@ -86,12 +105,12 @@ pipeline {
 
         stage('Deploy') {
             steps {
-                echo 'Pulling images and scanning them with Trivy before starting them'
+                echo "Deploying to '${ENVIRONMENT}' as Compose project '${COMPOSE_PROJECT}' (config from .env.${ENVIRONMENT}), scanning images with Trivy before starting them"
                 sh """
-                    IMAGE_TAG=${params.IMAGE_TAG} docker compose -f docker-compose.dev.yml pull
+                    IMAGE_TAG=${params.IMAGE_TAG} docker compose -p ${COMPOSE_PROJECT} --env-file .env.${ENVIRONMENT} -f docker-compose.deploy.yml pull
                     trivy image --severity HIGH,CRITICAL --exit-code 0 --format table ${BACKEND_IMAGE}:${params.IMAGE_TAG}
                     trivy image --severity HIGH,CRITICAL --exit-code 0 --format table ${FRONTEND_IMAGE}:${params.IMAGE_TAG}
-                    IMAGE_TAG=${params.IMAGE_TAG} docker compose -f docker-compose.dev.yml up -d
+                    IMAGE_TAG=${params.IMAGE_TAG} docker compose -p ${COMPOSE_PROJECT} --env-file .env.${ENVIRONMENT} -f docker-compose.deploy.yml up -d
                     docker image prune -f
                 """
             }
@@ -103,7 +122,7 @@ pipeline {
             sh 'docker logout || true'
         }
         success {
-            echo "Build ${params.IMAGE_TAG} pushed to Docker Hub and deployed."
+            echo "Build ${params.IMAGE_TAG} pushed to Docker Hub and deployed to '${ENVIRONMENT}'."
         }
         failure {
             echo 'Pipeline failed - scroll up to see which stage broke and why.'

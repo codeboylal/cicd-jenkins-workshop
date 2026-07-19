@@ -98,9 +98,10 @@ scanning the pulled artifact is what actually gets deployed).
    sudo apt-get update && sudo apt-get install -y trivy
    ```
 
-4. Security group: allow inbound 80 (app) and whatever port Jenkins'
-   web UI runs on (often 8080) from wherever students/instructor browse
-   from. Port 22 is only needed for your own admin SSH access, not for
+4. Security group: allow inbound 80 (prod app), 8081 (dev app — see
+   `.env.dev`'s `FRONTEND_PORT`), and whatever port Jenkins' web UI runs
+   on (often 8080) from wherever students/instructor browse from. Port 22
+   is only needed for your own admin SSH access, not for
    anything the pipeline does.
 
 5. **Add the credential in Jenkins — never in a file, never in the repo:**
@@ -139,13 +140,30 @@ scanning the pulled artifact is what actually gets deployed).
 
 ### Lab 2 — Jenkins job + credential (40 min)
 
-- Create a new Pipeline job, "Pipeline script from SCM", point it at the
-  repo, script path `Jenkinsfile`.
-- Add the `dockerhub-creds` credential as described above.
+- Create **two** Pipeline jobs, both "Pipeline script from SCM", both
+  pointing at the **same** repo and the **same** branch, both with script
+  path `Jenkinsfile` — the file itself never changes between them:
+  - `dev-task-tracker`
+  - `prod-task-tracker`
+
+  The job *name* is what selects the environment (see the `ENVIRONMENT`
+  line near the top of the Jenkinsfile) — this is deliberate. A build
+  parameter can be left on a stale value from a previous run and silently
+  reused (that bit us earlier building this workshop — worth telling
+  students the story); a job name can't drift like that.
+- Add the `dockerhub-creds` credential once — both jobs share it.
 - Builds are manual for now ("Build Now" / "Build with Parameters") — no
   SCM trigger is configured yet. This keeps the first pass simple:
   students see exactly what each stage does before automation hides the
   trigger from them.
+
+> **Don't fork the Jenkinsfile or compose file per environment.** It's
+> tempting to create a `dev` branch with its own slightly-different
+> Jenkinsfile once you have two jobs — resist it. The two files drift out
+> of sync within a few edits (this happened while building this exact
+> workshop), and you end up debugging *which* copy is stale instead of
+> the actual pipeline. One Jenkinsfile, one compose file, both driven by
+> which job runs them — that's the whole point of this setup.
 
 **Going further:** once the group is comfortable with manual builds, wire
 up a **GitHub webhook** so `git push` alone triggers a build — GitHub repo
@@ -172,15 +190,19 @@ Walk the Jenkinsfile top to bottom, matching each stage to the diagram:
 ### Lab 4 — Deploy + verify (40 min)
 
 - Re-run the job.
-- Watch the **Deploy** stage: `docker compose -f docker-compose.prod.yml
-  pull` grabs the images just pushed, **`trivy image` scans both**, then
-  `up -d` starts them, then `docker image prune` cleans up. If either
-  scan step exits non-zero the `&&`... actually the current Jenkinsfile
-  runs these as separate `sh` lines (not chained with `&&`), so a
-  non-zero Trivy exit fails the whole stage outright — point that out as
-  the difference from the earlier draft that chained everything in one
-  shell string.
-- Open `http://3.209.156.211` in a browser — that's their build, live.
+- Watch the **Deploy** stage: `docker compose -p tasktracker-<env>
+  --env-file .env.<env> -f docker-compose.deploy.yml pull` grabs the
+  images just pushed, **`trivy image` scans both**, then `up -d` starts
+  them, then `docker image prune` cleans up. `<env>` is `dev` or `prod`,
+  derived automatically from the Jenkins job's name (see the Jenkinsfile
+  header comment) — there's nothing to type in. Each `sh` line here runs
+  as its own statement, and Jenkins' `sh` step fails the whole stage the
+  moment any one of them exits non-zero, so a Trivy finding stops the
+  pipeline before `up -d` ever runs.
+- Open `http://3.209.156.211` (prod job) or
+  `http://3.209.156.211:8081` (dev job) in a browser — same host, two
+  isolated environments, no port collision (see "Multiple environments on
+  one host" in README.md for how).
 - Have each student point their own fork at their own Docker Hub
   namespace to build and push (deploying to a shared sandbox instance, or
   their own, if time allows).
@@ -200,7 +222,7 @@ Walk the Jenkinsfile top to bottom, matching each stage to the diagram:
   `withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'EC2_SSH_KEY')])`
   plus `ssh -i $EC2_SSH_KEY user@host '...'` wrapping the same compose/
   Trivy commands, and add an `EC2_HOST` parameter. This needs the deploy
-  target to have this repo cloned separately (so `docker-compose.prod.yml`
+  target to have this repo cloned separately (so `docker-compose.deploy.yml`
   exists there) and its own Trivy install.
 - Wire up the GitHub webhook described in Lab 2 so `git push` alone
   triggers a build, instead of manual builds.

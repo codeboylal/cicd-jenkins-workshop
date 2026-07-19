@@ -1,0 +1,60 @@
+# Single deploy-time compose file, reused for EVERY environment (dev, prod,
+# any future one). It is never hand-edited per environment or per pipeline —
+# everything that differs between environments is a variable, supplied by a
+# matching .env.<name> file (.env.dev, .env.prod) at deploy time.
+#
+# What keeps multiple environments from colliding on one host:
+#   - Compose "project name" (-p tasktracker-<env>) namespaces container
+#     names, the network, and the "db_data" volume automatically — you
+#     never see that collision even though this file never changes.
+#   - The one thing Compose *can't* namespace for you is a host port bind,
+#     so FRONTEND_PORT is the one value that must actually differ between
+#     environments — it comes from the .env file, not this YAML.
+#
+# Usage (see Jenkinsfile for the real invocation):
+#   docker compose -p tasktracker-<env> --env-file .env.<env> \
+#       -f docker-compose.deploy.yml pull
+#   docker compose -p tasktracker-<env> --env-file .env.<env> \
+#       -f docker-compose.deploy.yml up -d
+#
+# Note: for a real production system these Postgres credentials would come
+# from a secrets manager (AWS SSM/Secrets Manager, Vault, etc.), not a
+# compose file. They're inlined here (with per-environment overrides via
+# .env.<name>) to keep the workshop's deploy step to one command, with no
+# secret files to sync separately.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-taskuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-taskpass}
+      POSTGRES_DB: ${POSTGRES_DB:-taskdb}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+  backend:
+    image: lalbudha47/tasktracker-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-taskuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-taskpass}
+      POSTGRES_DB: ${POSTGRES_DB:-taskdb}
+      PORT: 8080
+    depends_on:
+      - db
+
+  frontend:
+    image: lalbudha47/tasktracker-frontend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+
+volumes:
+  db_data:
