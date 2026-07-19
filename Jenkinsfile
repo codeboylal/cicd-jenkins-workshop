@@ -88,10 +88,10 @@ pipeline {
             steps {
                 echo 'Pulling images and scanning them with Trivy before starting them'
                 sh """
-                    IMAGE_TAG=${params.IMAGE_TAG} docker compose -f docker-compose.prod.yml pull
+                    IMAGE_TAG=${params.IMAGE_TAG} docker compose -f docker-compose.dev.yml pull
                     trivy image --severity HIGH,CRITICAL --exit-code 0 --format table ${BACKEND_IMAGE}:${params.IMAGE_TAG}
                     trivy image --severity HIGH,CRITICAL --exit-code 0 --format table ${FRONTEND_IMAGE}:${params.IMAGE_TAG}
-                    IMAGE_TAG=${params.IMAGE_TAG} docker compose -f docker-compose.prod.yml up -d
+                    IMAGE_TAG=${params.IMAGE_TAG} docker compose -f docker-compose.dev.yml up -d
                     docker image prune -f
                 """
             }
